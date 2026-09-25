@@ -47,13 +47,13 @@ jobs:
 
           python - <<'PY'
           import json
-          import os
 
           records = []
 
           with open("feed.jsonl", "r", encoding="utf-8") as f:
               for line in f:
                   line = line.strip()
+
                   if line:
                       try:
                           records.append(json.loads(line))
@@ -119,18 +119,17 @@ jobs:
           print(latest_text)
           print("")
 
-          with open(
-              os.environ["GITHUB_ENV"],
-              "a",
-              encoding="utf-8"
-          ) as env:
-              env.write(f"LATEST_ID={latest_id}\n")
-              env.write("LATEST_TEXT<<EOF\n")
-              env.write(latest_text + "\n")
-              env.write("EOF\n")
-              env.write(f"LATEST_URL={latest_url}\n")
-              env.write(f"LATEST_CREATED={latest_created}\n")
+          with open("latest.env", "w", encoding="utf-8") as f:
+              f.write(f"LATEST_ID={latest_id}\n")
+              f.write(f"LATEST_URL={latest_url}\n")
+              f.write(f"LATEST_CREATED={latest_created}\n")
+
+          with open("latest_text.txt", "w", encoding="utf-8") as f:
+              f.write(latest_text)
           PY
+
+          source latest.env
+          LATEST_TEXT="$(cat latest_text.txt)"
 
           mkdir -p state
 
