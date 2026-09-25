@@ -17,16 +17,10 @@ jobs:
         run: |
           go install github.com/tamnd/facebook-cli/cmd/fb@v0.3.0
 
-      - name: Check Facebook CLI
-        run: |
-          "$(go env GOPATH)/bin/fb" version
-          echo ""
-          echo "Facebook CLI installed successfully."
-          echo "No Facebook account, cookies, or credentials are being used."
-
       - name: Test anonymous OrbeStation access
         run: |
           echo "Testing anonymous Facebook access..."
+          echo "No Facebook account, cookies, or credentials are being used."
           echo ""
 
           "$(go env GOPATH)/bin/fb" page OrbeStation --posts -n 5 -o jsonl
