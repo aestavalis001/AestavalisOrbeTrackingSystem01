@@ -1,13 +1,25 @@
-name: Test Anonymous Facebook CLI
+name: OrbeStation Telegram Monitor
 
 on:
+  schedule:
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+concurrency:
+  group: orbestation-monitor
+  cancel-in-progress: false
+
 jobs:
-  test-facebook-cli:
+  monitor:
     runs-on: ubuntu-24.04
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -17,10 +29,116 @@ jobs:
         run: |
           go install github.com/tamnd/facebook-cli/cmd/fb@v0.3.0
 
-      - name: Test anonymous OrbeStation access
+      - name: Check OrbeStation for new posts
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          echo "Testing anonymous Facebook access..."
-          echo "No Facebook account, cookies, or credentials are being used."
-          echo ""
+          set -euo pipefail
 
-          "$(go env GOPATH)/bin/fb" page OrbeStation -n 5 -o jsonl
+          echo "Checking Orbe Station anonymously..."
+          echo "No Facebook account, cookies, or credentials are being used."
+
+          "$(go env GOPATH)/bin/fb" page OrbeStation --posts -n 5 -o jsonl > page.jsonl
+
+          python - <<'PY'
+          import json
+          import os
+
+          records = []
+
+          with open("page.jsonl", "r", encoding="utf-8") as f:
+              for line in f:
+                  line = line.strip()
+                  if line:
+                      records.append(json.loads(line))
+
+          page = None
+
+          for record in records:
+              if isinstance(record, dict) and record.get("posts"):
+                  page = record
+                  break
+
+          if not page:
+              raise RuntimeError("No posts were returned by Facebook CLI.")
+
+          posts = page["posts"]
+
+          if not posts:
+              raise RuntimeError("Facebook CLI returned zero posts.")
+
+          posts = sorted(
+              posts,
+              key=lambda p: p.get("created_at", ""),
+              reverse=True
+          )
+
+          latest = posts[0]
+
+          latest_id = str(latest["id"])
+          latest_text = latest.get("message", {}).get("text", "").strip()
+          latest_url = latest.get("url", "")
+          latest_created = latest.get("created_at", "")
+
+          print("Latest post ID:", latest_id)
+          print("Latest post date:", latest_created)
+          print("Latest post URL:", latest_url)
+          print("Latest post text:")
+          print(latest_text)
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"LATEST_ID={latest_id}\n")
+              env.write(f"LATEST_TEXT<<EOF\n{latest_text}\nEOF\n")
+              env.write(f"LATEST_URL={latest_url}\n")
+              env.write(f"LATEST_CREATED={latest_created}\n")
+          PY
+
+          mkdir -p state
+
+          if [ ! -f state/last_post_id.txt ]; then
+            echo "No previous post state exists."
+            echo "Initializing with the current latest post."
+            echo "No Telegram alert will be sent on this first run."
+
+            echo "$LATEST_ID" > state/last_post_id.txt
+
+          else
+            LAST_ID="$(cat state/last_post_id.txt)"
+
+            echo "Previously recorded post ID: $LAST_ID"
+            echo "Current latest post ID:       $LATEST_ID"
+
+            if [ "$LATEST_ID" = "$LAST_ID" ]; then
+              echo "No new post."
+              echo "Nothing to send."
+
+            else
+              echo "NEW ORBE STATION POST DETECTED!"
+
+              MESSAGE="🚨 Orbe Station — NEW POST
+
+              ${LATEST_TEXT}
+
+              ${LATEST_URL}"
+
+              curl --fail --silent --show-error \
+                -X POST \
+                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+                --data-urlencode "text=${MESSAGE}"
+
+              echo "Telegram alert sent."
+
+              echo "$LATEST_ID" > state/last_post_id.txt
+            fi
+          fi
+
+          if ! git diff --quiet -- state/last_post_id.txt; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+            git add state/last_post_id.txt
+            git commit -m "Update OrbeStation monitor state"
+            git push
+          fi
