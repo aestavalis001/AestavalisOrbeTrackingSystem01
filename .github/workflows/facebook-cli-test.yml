@@ -23,4 +23,4 @@ jobs:
           echo "No Facebook account, cookies, or credentials are being used."
           echo ""
 
-          "$(go env GOPATH)/bin/fb" page OrbeStation --posts -n 5 -o jsonl
+          "$(go env GOPATH)/bin/fb" page OrbeStation -n 5 -o jsonl
