@@ -68,13 +68,14 @@ jobs:
 
               if record.get("posts"):
                   candidate_posts = record["posts"]
+
                   if isinstance(candidate_posts, list):
                       posts.extend(candidate_posts)
 
               elif record.get("id") and (
-                  record.get("message") or
-                  record.get("created_at") or
-                  record.get("url")
+                  record.get("message")
+                  or record.get("created_at")
+                  or record.get("url")
               ):
                   posts.append(record)
 
@@ -101,12 +102,13 @@ jobs:
           latest = posts[0]
 
           latest_id = str(latest["id"])
-          latest_text = (
-              latest.get("message", {}).get("text", "")
-              if isinstance(latest.get("message"), dict)
-              else str(latest.get("message", ""))
-          ).strip()
 
+          if isinstance(latest.get("message"), dict):
+              latest_text = latest["message"].get("text", "")
+          else:
+              latest_text = str(latest.get("message", ""))
+
+          latest_text = latest_text.strip()
           latest_url = latest.get("url", "")
           latest_created = latest.get("created_at", "")
 
@@ -117,7 +119,11 @@ jobs:
           print(latest_text)
           print("")
 
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+          with open(
+              os.environ["GITHUB_ENV"],
+              "a",
+              encoding="utf-8"
+          ) as env:
               env.write(f"LATEST_ID={latest_id}\n")
               env.write("LATEST_TEXT<<EOF\n")
               env.write(latest_text + "\n")
@@ -150,11 +156,11 @@ jobs:
               echo "NEW ORBE STATION POST DETECTED!"
               echo ""
 
-              MESSAGE="🚨 Orbe Station — NEW POST
-
-${LATEST_TEXT}
-
-${LATEST_URL}"
+              MESSAGE=$(printf \
+                '🚨 Orbe Station — NEW POST\n\n%s\n\n%s' \
+                "$LATEST_TEXT" \
+                "$LATEST_URL"
+              )
 
               curl \
                 --fail \
@@ -171,11 +177,12 @@ ${LATEST_URL}"
             fi
           fi
 
-          if ! git diff --quiet -- state/last_post_id.txt; then
+          git add state/last_post_id.txt
+
+          if ! git diff --cached --quiet -- state/last_post_id.txt; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-            git add state/last_post_id.txt
             git commit -m "Update OrbeStation monitor state"
             git push
           fi
